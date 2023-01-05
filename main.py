@@ -14,8 +14,18 @@ test_filepath = sys.argv[2]
 max_shift = int(sys.argv[3])
 interval = int(sys.argv[4])
 n_roi = int(sys.argv[5])
-radius_roi = int(sys.argv[6])
-save_filepath = sys.argv[7]
+roi_type = sys.argv[6]
+roi_halfwidth = int(sys.argv[7])
+do_nps = sys.argv[8]
+save_filepath = sys.argv[9]
+
+if roi_type == "circle" or roi_type == "Circle" or roi_type == "circ":
+	roi = "circle"
+elif roi_type == "square" or roi_type == "Square" or roi_type == "sq":
+	roi = "square"
+else:
+	print("Invalid ROI type (options are square or circle).")
+	exit()	
 	
 class projection:
 	def __init__(self, dataset, index):
@@ -41,9 +51,16 @@ class projection:
 		
 		self.mkup_img = self.disp_img
 		
-	def image_markup(self, label, pos, circle_radius, line_color, line_thickness):
-		self.mkup_img = cv2.circle(self.mkup_img, pos, radius=circle_radius, color=line_color, thickness=line_thickness) 
-		self.mkup_img = cv2.putText(self.mkup_img, label, (pos[0]+circle_radius, pos[1]+circle_radius), cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, color=line_color, thickness=line_thickness)
+	def image_markup(self, label, pos, halfwidth, line_color, line_thickness):
+		if roi == "circle":
+			self.mkup_img = cv2.circle(self.mkup_img, pos, radius=halfwidth, color=line_color, thickness=line_thickness) 
+		elif roi == "square":
+			startpoint = (pos[0]-halfwidth, pos[1]-halfwidth)
+			endpoint = (pos[0]+halfwidth, pos[1]+halfwidth)
+			self.mkup_img = cv2.rectangle(self.mkup_img, startpoint, endpoint, color=line_color, thickness=line_thickness)
+
+			
+		self.mkup_img = cv2.putText(self.mkup_img, label, (pos[0]+halfwidth, pos[1]+halfwidth), cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, color=line_color, thickness=line_thickness)
 
 	def display(self):
 		cv2.imshow(self.displayText, self.disp_img)
@@ -93,7 +110,19 @@ def select_pixel(event, x, y, flags, params):
 		c2 = randint(0, 255)
 		c3 = randint(0, 255)
 		
-
+def nps_calc():
+	print("calculating nps")
+	# For each ROI:
+	# Get mean value
+	# Subtract mean value from raw values
+	# DFT the result
+	# Square the result
+	# Bin the data according to radial spatial frequency (np.digitize)
+	# Average the data in each bin
+	# Then (outside this function):
+	# Average over all ROIs
+	# Multiply by ratio of pixel area to ROI area
+	
 
 """
 ======================== MAIN PROGRAM ==================================
@@ -137,8 +166,8 @@ for n in range(n_slice):
 	
 	while displayFlag == True:
 		if len(roi_x) > 0:
-			ref_img.image_markup(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(radius_roi*scale_display), (c1,c2,c3), 2)
-			test_img.image_markup(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(radius_roi*scale_display), (c1,c2,c3), 2)
+			ref_img.image_markup(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(roi_halfwidth*scale_display), (c1,c2,c3), 2)
+			test_img.image_markup(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(roi_halfwidth*scale_display), (c1,c2,c3), 2)
 		ref_img.display()
 		cv2.setMouseCallback(ref_img.displayText, select_pixel)
 		cv2.waitKey(1)
@@ -148,8 +177,8 @@ for n in range(n_slice):
 			displayFlag = False
 			
 			
-	ref_img.image_markup(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(radius_roi*scale_display), (c1,c2,c3), 2)
-	test_img.image_markup(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(radius_roi*scale_display), (c1,c2,c3), 2)
+	ref_img.image_markup(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(roi_halfwidth*scale_display), (c1,c2,c3), 2)
+	test_img.image_markup(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(roi_halfwidth*scale_display), (c1,c2,c3), 2)
 	
 	joined_disp = np.concatenate((ref_img.mkup_img, test_img.mkup_img), axis=1)
 	joined_disp = cv2.resize(joined_disp, (2*ref_img.disp_cols, ref_img.disp_rows))
@@ -169,17 +198,23 @@ for n in range(n_slice):
 	roi_y = [int(y/scale_display) for y in roi_y]
 	
 	for idx in range(n_roi):
-		ref_values = []
-		test_values = []
-		
 		x0 = roi_x[idx]
 		y0 = roi_y[idx]
 		
-		for i in range(y0 - radius_roi, y0 + radius_roi):
-			for j in range(x0 - radius_roi, x0 + radius_roi):
-				if np.sqrt((j - x0)**2 + (i - y0)**2) <= radius_roi:
-					ref_values.append(ref_img.data[i, j]) 
-					test_values.append(test_img.data[i, j])
+		if roi == "circle":
+			ref_values = []
+			test_values = []
+			
+			radius_roi = roi_halfwidth
+		
+			for i in range(y0 - radius_roi, y0 + radius_roi):
+				for j in range(x0 - radius_roi, x0 + radius_roi):
+					if np.sqrt((j - x0)**2 + (i - y0)**2) <= radius_roi:
+						ref_values.append(ref_img.data[i, j])
+						test_values.append(test_img.data[i, j])
+		elif roi == "square":
+			ref_values = ref_img.data[y0-roi_halfwidth:y0+roi_halfwidth, x0-roi_halfwidth:x0+roi_halfwidth]
+			test_values = test_img.data[y0-roi_halfwidth:y0+roi_halfwidth, x0-roi_halfwidth:x0+roi_halfwidth]
 					
 		ref_mean = np.mean(ref_values)
 		ref_sd = np.std(ref_values)
