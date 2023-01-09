@@ -87,7 +87,10 @@ def find_shift(fixed, moving):
 
 class dataFrame:
 	def __init__(self):
-		self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refMean", "refSD", "testmean", "testSD"]
+		if do_nps:
+			self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refMean", "refSD", "testMean", "testSD", "radialSpFreq", "refNPS", "testNPS"]
+		else:
+			self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refMean", "refSD", "testMean", "testSD"]
 		self.table = pd.DataFrame(columns=self.columnNames)
 		self.idx = 0
 		
@@ -261,20 +264,24 @@ for n in range(n_slice):
 						xx = sp_freq[j]
 						r[i, j] = np.sqrt(xx**2 + yy**2)
 		
-			ref_sp_freq, ref_noise_power = nps_calc(ref_values, ref_mean, r)
-			test_sp_freq, test_noise_power = nps_calc(test_values, test_mean, r)
+			sp_freq, ref_noise_power = nps_calc(ref_values, ref_mean, r)
+			sp_freq, test_noise_power = nps_calc(test_values, test_mean, r)
 			
 			roi_colour = list_of_colours[idx]
 			
-			ref_plt.plot(ref_sp_freq, ref_noise_power, color=roi_colour, linestyle='--', label="Ref ROI "+str(idx))
-			test_plt.plot(test_sp_freq, test_noise_power, color=roi_colour, linestyle='-', label="Test ROI "+str(idx))
+			ref_plt.plot(sp_freq, ref_noise_power, color=roi_colour, linestyle='--', label="Ref ROI "+str(idx))
+			test_plt.plot(sp_freq, test_noise_power, color=roi_colour, linestyle='-', label="Test ROI "+str(idx))
 			
 			if idx==n_roi-1:
 				plt.xlabel(r"Spatial frequency (nm$^{-1}$)")
 				plt.ylabel(r"Noise power (rad$^{2}$ nm$^{2}$)")
 				plt.savefig(save_filepath + "/figures/nps_" + "ref_" + ref_img.sliceName + "_test_" + test_img.sliceName + ".png")
+				
+			data_to_write = [ref_img.sliceName, test_img.sliceName, idx, (roi_x[idx], roi_y[idx]), ref_mean, ref_sd, test_mean, test_sd, sp_freq, list(ref_noise_power), list(test_noise_power)]
 		
-		data_to_write = [ref_img.sliceName, test_img.sliceName, idx, (roi_x[idx], roi_y[idx]), ref_mean, ref_sd, test_mean, test_sd]
+		else:
+			data_to_write = [ref_img.sliceName, test_img.sliceName, idx, (roi_x[idx], roi_y[idx]), ref_mean, ref_sd, test_mean, test_sd]
+		
 		results.idx = (n * n_roi) + idx
 		results.write_line(data_to_write)
 		
