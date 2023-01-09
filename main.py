@@ -2,6 +2,7 @@ import sys
 import os
 import glob
 import cv2
+import argparse
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -10,20 +11,22 @@ from PIL import Image
 from skimage.metrics import structural_similarity
 import matplotlib.colors as mcolors
 
-ref_filepath = sys.argv[1]
-test_filepath = sys.argv[2]
-max_shift = int(sys.argv[3])
-interval = int(sys.argv[4])
-n_roi = int(sys.argv[5])
-roi_type = sys.argv[6]
-roi_halfwidth = int(sys.argv[7])
-do_nps = sys.argv[8]
-px_size = float(sys.argv[9])
-save_filepath = sys.argv[10]
+parser = argparse.ArgumentParser(description="Quantitative ROI-based comparison of two similar images")
+parser.add_argument('ref_filepath', help="Required: Path to the reference image.")
+parser.add_argument('test_filepath', help="Required: Path to the test image.")
+parser.add_argument('save_filepath', help="Required: Path where data is to be saved.")
+parser.add_argument('--max_shift', default=[10, 10, 30], nargs=3, type=int, help="Maximum shift allowed in (x, y, z) for image alignment. Default value is (10, 10, 30).")
+parser.add_argument('--interval', default=1, type=int, help="For interval=x, image comparison will be performed for every x slices in the dataset. Default value is 10.")
+parser.add_argument('--n_roi', default=5, type=int, help="Number of regions of interest to be selected. Default value is 1 i.e., every image will be treated.")
+parser.add_argument('--roi_shape', choices=['square', 'circle'], default='square', help="The shape of the region of interest to be selected. Available options: square or circle.")
+parser.add_argument('--roi_halfwidth', default=10, type=int, help="The half-width or radius of the region of interest in pixels. Default value is 10.")
+parser.add_argument('--do_nps', action='store_true', default=True, help="If do_nps=True (default), the noise power spectrum iwill be calculated and saved to file, otherwie it will not.")
+parser.add_argument('--px_size', default=90, type=float, help="The size, in nm, of the image pixels. Default value is 90 nm. Value is the same for both images.")
+params = parser.parse_args()
 
-if roi_type == "circle" or roi_type == "Circle" or roi_type == "circ":
+if params.roi_shape == "circle" or params.roi_shape == "Circle" or params.roi_shape == "c" or params.roi_shape=="C":
 	roi = "circle"
-elif roi_type == "square" or roi_type == "Square" or roi_type == "sq":
+elif params.roi_shape == "square" or params.roi_shape == "Square" or params.roi_shape == "s" or params.roi_shape=="S":
 	roi = "square"
 else:
 	print("Invalid ROI type (options are square or circle).")
@@ -73,7 +76,7 @@ def find_shift(fixed, moving):
 	shift = 0
 	ref = projection(fixed, 0)
 	ref.read()
-	for i in range(max_shift):
+	for i in range(params.max_shift[2]):
 		test = projection(moving, i)
 		test.read()
 		score, diff = structural_similarity(ref.data, test.data, full=True)
@@ -87,7 +90,7 @@ def find_shift(fixed, moving):
 
 class dataFrame:
 	def __init__(self):
-		if do_nps:
+		if params.do_nps:
 			self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refMean", "refSD", "testMean", "testSD", "radialSpFreq", "refNPS", "testNPS"]
 		else:
 			self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refMean", "refSD", "testMean", "testSD"]
@@ -138,7 +141,7 @@ def nps_calc(roi_raw, roi_mean, r_sp_freq):
 	bin_counts, bin_edges = np.histogram(r_sp_freq, bins=nbins, density=False, weights=None)
 	bin_ave = bin_sum / bin_counts
 	bin_centres = [(bin_edges[x] + bin_edges[x+1])/2 for x in range(len(bin_edges)-1)]
-	bin_nps = (px_size**2 / dim**2) * bin_ave # units: rad^2 nm^2
+	bin_nps = (params.px_size**2 / dim**2) * bin_ave # units: rad^2 nm^2
 	
 	return bin_centres, bin_nps
 			
@@ -148,15 +151,15 @@ def nps_calc(roi_raw, roi_mean, r_sp_freq):
 ======================== MAIN PROGRAM ==================================
 """		
 
-if not os.path.exists(save_filepath):
-	os.makedirs(save_filepath)
+if not os.path.exists(params.save_filepath):
+	os.makedirs(params.save_filepath)
 		
-ref_shift = sorted(glob.glob(ref_filepath + "*"))
-test_shift = sorted(glob.glob(test_filepath + "*"))
+ref_shift = sorted(glob.glob(params.ref_filepath + "*"))
+test_shift = sorted(glob.glob(params.test_filepath + "*"))
 shift = find_shift(ref_shift, test_shift)
 
-ref_images = sorted(glob.glob(ref_filepath + "*"))[0::interval]
-test_images = sorted(glob.glob(test_filepath + "*"))[0+shift::interval]
+ref_images = sorted(glob.glob(params.ref_filepath + "*"))[0::params.interval]
+test_images = sorted(glob.glob(params.test_filepath + "*"))[0+shift::params.interval]
 
 scale_display = 0.75
 
@@ -178,7 +181,7 @@ for n in range(n_slice):
 	ref_img = projection(ref_images, n)
 	ref_img.scaleDisp = scale_display
 	ref_img.read()
-	ref_img.displayText = "Select " + str(n_roi) + " ROI centres."
+	ref_img.displayText = "Select " + str(params.n_roi) + " ROI centres."
 	
 	test_img = projection(test_images, n)
 	test_img.scaleDisp = scale_display
@@ -189,19 +192,19 @@ for n in range(n_slice):
 	while displayFlag == True:
 		if len(roi_x) > 0:
 			rgb = (np.asarray(mcolors.to_rgb(mcolors.TABLEAU_COLORS[list_of_colours[len(roi_x)-1]]))*255).astype(int)
-			ref_img.image_markup(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
-			test_img.image_markup(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
+			ref_img.image_markup(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(params.roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
+			test_img.image_markup(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(params.roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
 		ref_img.display()
 		cv2.setMouseCallback(ref_img.displayText, select_pixel)
 		cv2.waitKey(1)
 			
-		if len(roi_x) == n_roi:
+		if len(roi_x) == params.n_roi:
 			cv2.destroyAllWindows()
 			displayFlag = False
 			
 	rgb = (np.asarray(mcolors.to_rgb(mcolors.TABLEAU_COLORS[list_of_colours[len(roi_x)-1]]))*255).astype(int)
-	ref_img.image_markup(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
-	test_img.image_markup(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
+	ref_img.image_markup(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(params.roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
+	test_img.image_markup(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(params.roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
 	
 	joined_disp = np.concatenate((ref_img.mkup_img, test_img.mkup_img), axis=1)
 	joined_disp = cv2.resize(joined_disp, (2*ref_img.disp_cols, ref_img.disp_rows))
@@ -209,7 +212,7 @@ for n in range(n_slice):
 	cv2.waitKey(0)
 	cv2.destroyAllWindows()
 	
-	save_figure_path = save_filepath + "/figures/"
+	save_figure_path = params.save_filepath + "/figures/"
 	
 	if not os.path.exists(save_figure_path):
 		os.makedirs(save_figure_path)
@@ -220,7 +223,7 @@ for n in range(n_slice):
 	roi_x = [int(x/scale_display) for x in roi_x]
 	roi_y = [int(y/scale_display) for y in roi_y]
 	
-	for idx in range(n_roi):
+	for idx in range(params.n_roi):
 		x0 = roi_x[idx]
 		y0 = roi_y[idx]
 		
@@ -228,7 +231,7 @@ for n in range(n_slice):
 			ref_values = []
 			test_values = []
 			
-			radius_roi = roi_halfwidth
+			radius_roi = params.roi_halfwidth
 		
 			for i in range(y0 - radius_roi, y0 + radius_roi):
 				for j in range(x0 - radius_roi, x0 + radius_roi):
@@ -236,8 +239,8 @@ for n in range(n_slice):
 						ref_values.append(ref_img.data[i, j])
 						test_values.append(test_img.data[i, j])
 		elif roi == "square":
-			ref_values = ref_img.data[y0-roi_halfwidth:y0+roi_halfwidth, x0-roi_halfwidth:x0+roi_halfwidth]
-			test_values = test_img.data[y0-roi_halfwidth:y0+roi_halfwidth, x0-roi_halfwidth:x0+roi_halfwidth]
+			ref_values = ref_img.data[y0-params.roi_halfwidth:y0+params.roi_halfwidth, x0-params.roi_halfwidth:x0+params.roi_halfwidth]
+			test_values = test_img.data[y0-params.roi_halfwidth:y0+params.roi_halfwidth, x0-params.roi_halfwidth:x0+params.roi_halfwidth]
 			
 					
 		ref_mean = np.mean(ref_values)
@@ -245,14 +248,14 @@ for n in range(n_slice):
 		test_mean = np.mean(test_values)
 		test_sd = np.std(test_values)
 		
-		if do_nps:
+		if params.do_nps:
 			if idx==0:
 				print("Calculating NPS.")
 				fig=plt.figure()
 				ref_plt = fig.gca()
 				test_plt = fig.gca()
 				
-				sp_freq = np.fft.fftfreq(ref_values.shape[0], px_size)
+				sp_freq = np.fft.fftfreq(ref_values.shape[0], params.px_size)
 				df = sp_freq[1] - sp_freq[0]
 				sp_freq = sp_freq + df/2
 	
@@ -272,19 +275,19 @@ for n in range(n_slice):
 			ref_plt.plot(sp_freq, ref_noise_power, color=roi_colour, linestyle='--', label="Ref ROI "+str(idx))
 			test_plt.plot(sp_freq, test_noise_power, color=roi_colour, linestyle='-', label="Test ROI "+str(idx))
 			
-			if idx==n_roi-1:
+			if idx==params.n_roi-1:
 				plt.xlabel(r"Spatial frequency (nm$^{-1}$)")
 				plt.ylabel(r"Noise power (rad$^{2}$ nm$^{2}$)")
-				plt.savefig(save_filepath + "/figures/nps_" + "ref_" + ref_img.sliceName + "_test_" + test_img.sliceName + ".png")
+				plt.savefig(params.save_filepath + "/figures/nps_" + "ref_" + ref_img.sliceName + "_test_" + test_img.sliceName + ".png")
 				
 			data_to_write = [ref_img.sliceName, test_img.sliceName, idx, (roi_x[idx], roi_y[idx]), ref_mean, ref_sd, test_mean, test_sd, sp_freq, list(ref_noise_power), list(test_noise_power)]
 		
 		else:
 			data_to_write = [ref_img.sliceName, test_img.sliceName, idx, (roi_x[idx], roi_y[idx]), ref_mean, ref_sd, test_mean, test_sd]
 		
-		results.idx = (n * n_roi) + idx
+		results.idx = (n * params.n_roi) + idx
 		results.write_line(data_to_write)
 		
-results.save_as_excel(save_filepath+"/results")
+results.save_as_excel(params.save_filepath+"/results")
 
 
