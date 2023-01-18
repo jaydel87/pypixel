@@ -20,6 +20,7 @@ parser.add_argument('--no_alignZ', action='store_true', default=False, help="Ski
 parser.add_argument('--no_alignXY', action='store_true', default=False, help="Skip xy-alignment (in slice place) of test dataset to reference dataset.")
 parser.add_argument('--max_shift', default=[30, 5], nargs=2, type=int, help="Maximum shift allowed in (slice, xy plane) for image alignment. Default value is (30, 10).")
 parser.add_argument('--interval', default=1, type=int, help="For interval=x, image comparison will be performed for every x slices in the dataset. Default value is 10.")
+parser.add_argument('--slices', nargs='*', action='store', type=int, help="Optional. Provide specific slices to analyse. Overrides --intervals if used.")
 parser.add_argument('--n_roi', default=5, type=int, help="Number of regions of interest to be selected. Default value is 1 i.e., every image will be treated.")
 parser.add_argument('--roi_shape', choices=['square', 'circle'], default='square', help="The shape of the region of interest to be selected. Available options: square or circle.")
 parser.add_argument('--roi_halfwidth', default=10, type=int, help="The half-width or radius of the region of interest in pixels. Default value is 10.")
@@ -34,6 +35,9 @@ elif params.roi_shape == "square" or params.roi_shape == "Square" or params.roi_
 else:
 	print("Invalid ROI type (options are square or circle).")
 	exit()	
+	
+if params.slices != None:
+	slice_idx = [x-1 for x in params.slices]
 	
 class projection:
 	def __init__(self, dataset, index):
@@ -136,14 +140,9 @@ class dataFrame:
 
 
 def select_pixel(event, x, y, flags, params):
-	global c1, c2, c3
 	if event == cv2.EVENT_LBUTTONDOWN:
 		roi_x.append(x)
 		roi_y.append(y)
-		
-		c1 = randint(0, 255)
-		c2 = randint(0, 255)
-		c3 = randint(0, 255)
 		
 def nps_calc(roi_raw, roi_mean, r_sp_freq):
 	# For each ROI:
@@ -186,12 +185,21 @@ test_shift = sorted(glob.glob(params.test_filepath + "*"))
 
 if not params.no_alignZ:
 	slice_shift = z_shift(ref_shift, test_shift)
-	ref_images = sorted(glob.glob(params.ref_filepath + "*"))[0:-slice_shift:params.interval]
-	test_images = sorted(glob.glob(params.test_filepath + "*"))[0+slice_shift::params.interval]
+	if params.slices == None:
+		ref_images = sorted(glob.glob(params.ref_filepath + "*"))[0:-slice_shift:params.interval]
+		test_images = sorted(glob.glob(params.test_filepath + "*"))[0+slice_shift::params.interval]
+	else:
+		shifted_idx = [x + slice_shift for x in slice_idx]
+		ref_images = [sorted(glob.glob(params.ref_filepath + "*"))[s] for s in slice_idx]
+		test_images = [sorted(glob.glob(params.test_filepath + "*"))[s] for s in shifted_idx]
 	
 else:
-	ref_images = sorted(glob.glob(params.ref_filepath + "*"))[0::params.interval]
-	test_images = sorted(glob.glob(params.test_filepath + "*"))[0::params.interval]
+	if params.slices == None:
+		ref_images = sorted(glob.glob(params.ref_filepath + "*"))[0::params.interval]
+		test_images = sorted(glob.glob(params.test_filepath + "*"))[0::params.interval]
+	else:
+		ref_images = [sorted(glob.glob(params.ref_filepath + "*"))[s] for s in slice_idx]
+		test_images = [sorted(glob.glob(params.test_filepath + "*"))[s] for s in slice_idx]
 
 scale_display = 0.75
 
@@ -207,6 +215,7 @@ list_of_colours = list(mcolors.TABLEAU_COLORS.keys())
 results = dataFrame()
 
 for n in range(n_slice):	
+	print("\nImage " + str(n+1) + " of " + str(n_slice) + ".")
 	roi_x = []
 	roi_y = []
 	
