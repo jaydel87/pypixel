@@ -122,7 +122,7 @@ def xy_shift(fixed, moving):
 class dataFrame:
 	def __init__(self):
 		if not params.no_nps:
-			self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refMean", "refSD", "testMean", "testSD", "radialSpFreq", "refNPS", "testNPS"]
+			self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refMean", "refSD", "testMean", "testSD", "radialSpFreq", "refNPS", "testNPS", "refTotNoise", "testTotNoise"]
 		else:
 			self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refMean", "refSD", "testMean", "testSD"]
 		self.table = pd.DataFrame(columns=self.columnNames)
@@ -161,15 +161,18 @@ def nps_calc(roi_raw, roi_mean, r_sp_freq):
 	fft_g_sq = np.power(np.absolute(fft_g), 2)
 	
 	dim = roi_raw.shape[0]
-	nbins = int(dim/2)
+	nbins = dim #int(dim/2)
 	
 	bin_sum, bin_edges = np.histogram(r_sp_freq, bins=nbins, density=False, weights=fft_g_sq)
 	bin_counts, bin_edges = np.histogram(r_sp_freq, bins=nbins, density=False, weights=None)
 	bin_ave = bin_sum / bin_counts
 	bin_centres = [(bin_edges[x] + bin_edges[x+1])/2 for x in range(len(bin_edges)-1)]
-	bin_nps = (params.px_size**2 / dim**2) * bin_ave # units: rad^2 nm^2
+	bin_nps = (params.px_size**2 / dim**2) * bin_ave # units: nm^2
 	
-	return bin_centres, bin_nps
+	df = bin_centres[1] - bin_centres[0]
+	tot_noise = np.sqrt(np.sum(bin_nps*df)) # nm^2
+	
+	return bin_centres, bin_nps, tot_noise
 			
 	
 
@@ -182,6 +185,8 @@ if not os.path.exists(params.save_filepath):
 		
 ref_shift = sorted(glob.glob(params.ref_filepath + "*"))
 test_shift = sorted(glob.glob(params.test_filepath + "*"))
+
+print(params.ref_filepath, params.test_filepath)
 
 if not params.no_alignZ:
 	slice_shift = z_shift(ref_shift, test_shift)
@@ -300,20 +305,21 @@ for n in range(n_slice):
 				ref_plt = fig.gca()
 				test_plt = fig.gca()
 				
-				if n==0 and idx == 0:
-					sp_freq = np.fft.fftfreq(ref_values.shape[0], params.px_size)
-					df = sp_freq[1] - sp_freq[0]
-					sp_freq = sp_freq + df/2
+				if n==0:
+					sp_freq = np.fft.fftfreq(np.fft.fft2(ref_values).shape[0], params.px_size)
+					nyquist_freq = 0.5 / params.px_size
+					
+					sp_freq = sp_freq / nyquist_freq
 	
-					r = np.zeros(ref_values.shape)
+					r = np.zeros(np.fft.fft2(ref_values).shape)
 	
 					for i, j in product(range(len(sp_freq)), range(len(sp_freq))):
 						yy = sp_freq[i]
 						xx = sp_freq[j]
 						r[i, j] = np.sqrt(xx**2 + yy**2)
 		
-			sp_freq, ref_noise_power = nps_calc(ref_values, ref_mean, r)
-			sp_freq, test_noise_power = nps_calc(test_values, test_mean, r)
+			sp_freq, ref_noise_power, ref_tot_noise = nps_calc(ref_values, ref_mean, r)
+			sp_freq, test_noise_power, test_tot_noise = nps_calc(test_values, test_mean, r)
 			
 			roi_colour = list_of_colours[idx]
 			
@@ -321,11 +327,12 @@ for n in range(n_slice):
 			test_plt.plot(sp_freq, test_noise_power, color=roi_colour, linestyle='-', label="Test ROI "+str(idx))
 			
 			if idx==params.n_roi-1:
-				plt.xlabel(r"Spatial frequency (nm$^{-1}$)")
-				plt.ylabel(r"Noise power (rad$^{2}$ nm$^{2}$)")
+				plt.xlabel(r"Spatial frequency / Nyquist frequency")
+				plt.ylabel(r"Noise power (nm$^{2}$)")
+				plt.xlim((0,1))
 				plt.savefig(params.save_filepath + "/figures/nps_" + "ref_" + ref_img.sliceName + "_test_" + test_img.sliceName + ".png")
 				
-			data_to_write = [ref_img.sliceName, test_img.sliceName, idx, (roi_x[idx], roi_y[idx]), ref_mean, ref_sd, test_mean, test_sd, sp_freq, list(ref_noise_power), list(test_noise_power)]
+			data_to_write = [ref_img.sliceName, test_img.sliceName, idx, (roi_x[idx], roi_y[idx]), ref_mean, ref_sd, test_mean, test_sd, sp_freq, list(ref_noise_power), list(test_noise_power), ref_tot_noise, test_tot_noise]
 		
 		else:
 			data_to_write = [ref_img.sliceName, test_img.sliceName, idx, (roi_x[idx], roi_y[idx]), ref_mean, ref_sd, test_mean, test_sd]
