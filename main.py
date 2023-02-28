@@ -242,7 +242,8 @@ for n in range(n_slice):
 	
 	while displayFlag == True:
 		if len(roi_x) > 0:
-			rgb = (np.asarray(mcolors.to_rgb(mcolors.TABLEAU_COLORS[list_of_colours[len(roi_x)-1]]))*255).astype(int)
+			c = (len(roi_x) - 1)  - (int(len(roi_x)/10) * 10) # Go back to zero when number of ROIs exceeds number of colours in palette
+			rgb = (np.asarray(mcolors.to_rgb(mcolors.TABLEAU_COLORS[list_of_colours[c]]))*255).astype(int)
 			ref_img.draw_roi(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(params.roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
 			test_img.draw_roi(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(params.roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
 		ref_img.display()
@@ -253,7 +254,8 @@ for n in range(n_slice):
 			cv2.destroyAllWindows()
 			displayFlag = False
 			
-	rgb = (np.asarray(mcolors.to_rgb(mcolors.TABLEAU_COLORS[list_of_colours[len(roi_x)-1]]))*255).astype(int)
+	c = (len(roi_x) - 1)  - (int(len(roi_x)/10) * 10)		
+	rgb = (np.asarray(mcolors.to_rgb(mcolors.TABLEAU_COLORS[list_of_colours[c]]))*255).astype(int)
 	ref_img.draw_roi(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(params.roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
 	test_img.draw_roi(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(params.roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
 	
@@ -321,7 +323,8 @@ for n in range(n_slice):
 			sp_freq, ref_noise_power, ref_tot_noise = nps_calc(ref_values, ref_mean, r)
 			sp_freq, test_noise_power, test_tot_noise = nps_calc(test_values, test_mean, r)
 			
-			roi_colour = list_of_colours[idx]
+			c = (idx)  - (int(idx/10) * 10)
+			roi_colour = list_of_colours[c]
 			
 			ref_plt.plot(sp_freq, ref_noise_power, color=roi_colour, linestyle='--', label="Ref ROI "+str(idx))
 			test_plt.plot(sp_freq, test_noise_power, color=roi_colour, linestyle='-', label="Test ROI "+str(idx))
