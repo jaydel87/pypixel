@@ -127,11 +127,23 @@ def xy_shift(fixed, moving):
 	
 
 class dataFrame:
-	def __init__(self):
+	def __init__(self, add_columns):
+		base_cols = ["slice", "roiID", "roiCentre"]
 		if not params.no_nps:
-			self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refRaw", "refMean", "refSD", "testRaw", "testMean", "testSD", "radialSpFreq", "refNPS", "testNPS", "refTotNoise", "testTotNoise"]
+			#self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refRaw", "refMean", "refSD", "testRaw", "testMean", "testSD", "radialSpFreq", "refNPS", "testNPS", "refTotNoise", "testTotNoise"]
+			data_cols = ["Raw", "Mean", "SD", "radialSpFreq", "NPS", "TotNoise"]
+			self.columnNames = base_cols + data_cols
+			for i in range(add_columns):
+				test_data_cols = ["test" + str(i) + x for x in data_cols]
+				self.columnNames.extend(test_data_cols)
 		else:
-			self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refRaw", "refMean", "refSD", "testRaw", "testMean", "testSD"]
+			#self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refRaw", "refMean", "refSD", "testRaw", "testMean", "testSD"]
+			data_cols = ["Raw", "Mean", "SD"]
+			self.columnNames = base_cols + data_cols
+			for i in range(add_columns):
+				test_data_cols = ["test" + str(i) + x for x in data_cols]
+				self.columnNames.extend(test_data_cols)
+		
 		self.table = pd.DataFrame(columns=self.columnNames)
 		self.idx = 0
 		
@@ -190,70 +202,72 @@ def nps_calc(roi_raw, roi_mean, r_sp_freq):
 if not os.path.exists(params.save_to):
 	os.makedirs(params.save_to)
 	
-ref_dataset = params.ref		
-ref_shift = sorted(glob.glob(ref_dataset + "*"))
-test_shift = sorted(glob.glob(test_dataset + "*"))
-
-print(ref_dataset, test_dataset)
-
-if not params.no_alignZ:
-	slice_shift = z_shift(ref_shift, test_shift, 5)
-	if params.slices == None:
-		ref_images = sorted(glob.glob(params.ref + "*"))[0:-slice_shift:params.interval]
-		test_images = sorted(glob.glob(params.test + "*"))[0+slice_shift::params.interval]
-	else:
-		shifted_idx = [x + slice_shift for x in slice_idx]
-		ref_images = [sorted(glob.glob(params.ref + "*"))[s] for s in slice_idx]
-		test_images = [sorted(glob.glob(params.test + "*"))[s] for s in shifted_idx]
-	
-else:
-	if params.slices == None:
-		ref_images = sorted(glob.glob(params.ref + "*"))[0::params.interval]
-		test_images = sorted(glob.glob(params.test + "*"))[0::params.interval]
-	else:
-		ref_images = [sorted(glob.glob(params.ref + "*"))[s] for s in slice_idx]
-		test_images = [sorted(glob.glob(params.test + "*"))[s] for s in slice_idx]
-
+ref_dataset = params.ref
 scale_display = 0.75
 
-if len(ref_images) != len(test_images):
-	print("ERROR: number of test images must be the same as the number of reference images.")
-	exit()
-	
+if params.slices == None:
+	slice_idx = np.arange(max_slice_shift, len(params.ref), params.interval)
 else:
+	slice_idx = [x-1 for x in params.slices]
+	
+ref_images = [sorted(glob.glob(ref_dataset + "*"))[s] for s in slice_idx]
+
+list_of_colours = list(mcolors.TABLEAU_COLORS.keys())
+
+if params.test != None:
+	test_images = [0]*len(params.test)
+	max_slice_shift = params.max_shift[0]
+	results = dataFrame(len(params.test))
+	
+	for i,test_dataset in enumerate(params.test):
+		ref_shift = sorted(glob.glob(ref_dataset + "*"))
+		test_shift = sorted(glob.glob(test_dataset + "*"))
+
+		print(ref_dataset, test_dataset)
+
+		if not params.no_alignZ:
+			slice_shift = z_shift(ref_shift, test_shift, 5)
+			shifted_idx = [x + slice_shift for x in slice_idx]
+			
+		else:
+			shifted_idx = slice_idx
+		
+		test_images[i] = [sorted(glob.glob(test_dataset + "*"))[s] for s in shifted_idx]
+
+		if len(ref_images) != len(test_images[i]):
+			print("ERROR: number of test images must be the same as the number of reference images.")
+			exit()
+	
+		else:
+			n_slice = len(ref_images)
+
+else:
+	results = dataFrame(0)
 	n_slice = len(ref_images)
 	
-list_of_colours = list(mcolors.TABLEAU_COLORS.keys())
-	
-results = dataFrame()
-
+		
 for n in range(n_slice):	
+	save_figure_path = params.save_to + "/figures/"
+	if not os.path.exists(save_figure_path):
+		os.makedirs(save_figure_path)
+	
 	print("\nImage " + str(n+1) + " of " + str(n_slice) + ".")
 	roi_x = []
 	roi_y = []
-	
+
 	ref_img = projection(ref_images, n)
 	ref_img.scaleDisp = scale_display
 	ref_img.read()
 	ref_img.convertDisplay()
 	ref_img.displayText = "Select " + str(params.n_roi) + " ROI centres."
 	
-	test_img = projection(test_images, n)
-	test_img.scaleDisp = scale_display
-	test_img.read()
-	
-	if not params.no_alignXY:
-		test_img.data = xy_shift(ref_img, test_img)
-	test_img.convertDisplay()
-	
-	displayFlag = True
+	save_img_name = save_figure_path + "ref_" + ref_img.sliceName
 	
 	while displayFlag == True:
 		if len(roi_x) > 0:
 			c = (len(roi_x) - 1)  - (int(len(roi_x)/10) * 10) # Go back to zero when number of ROIs exceeds number of colours in palette
 			rgb = (np.asarray(mcolors.to_rgb(mcolors.TABLEAU_COLORS[list_of_colours[c]]))*255).astype(int)
 			ref_img.draw_roi(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(params.roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
-			test_img.draw_roi(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(params.roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
 		ref_img.display()
 		cv2.setMouseCallback(ref_img.displayText, select_pixel)
 		cv2.waitKey(1)
@@ -265,21 +279,35 @@ for n in range(n_slice):
 	c = (len(roi_x) - 1)  - (int(len(roi_x)/10) * 10)		
 	rgb = (np.asarray(mcolors.to_rgb(mcolors.TABLEAU_COLORS[list_of_colours[c]]))*255).astype(int)
 	ref_img.draw_roi(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(params.roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
-	test_img.draw_roi(str(len(roi_x)-1), (roi_x[-1],roi_y[-1]), int(params.roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
+	joined_disp = ref_img.mkup_img
+
+	if params.test != None:
+		test_img_array = np.zeros((len(test_images), ref_img.nrows, ref_img.ncols))
+		for i, img in enumerate(test_images):
+			test_img = projection(img, n)
+			test_img.scaleDisp = scale_display
+			test_img.read()
+			test_img_array[i,:,:] = test_img.data
+
+			save_img_name += "_test_" + str(i) + test_img.sliceName
+
+			if not params.no_alignXY:
+				test_img.data = xy_shift(ref_img, test_img)
+			test_img.convertDisplay()
+			
+			for n in range(params.n_roi):
+				c = n - (int(n/10) * 10)
+				rgb = (np.asarray(mcolors.to_rgb(mcolors.TABLEAU_COLORS[list_of_colours[c]]))*255).astype(int)
+				test_img.draw_roi(str(n), (roi_x[n],roi_y[n]), int(params.roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
+				joined_disp = np.concatenate((joined_disp, test_img.mkup_img), axis=1)
 	
-	joined_disp = np.concatenate((ref_img.mkup_img, test_img.mkup_img), axis=1)
-	joined_disp = cv2.resize(joined_disp, (2*ref_img.disp_cols, ref_img.disp_rows))
-	cv2.imshow("Displaying ROIs on reference image (left) and test image (right). Press <<ENTER>> to confirm.", joined_disp)
+		joined_disp = cv2.resize(joined_disp, (ref_img.disp_cols, (1/(len(test_images)+1))*ref_img.disp_rows))
+		
+	cv2.imshow("Displaying ROIs on reference image (left) and test images (right). Press <<ENTER>> to confirm.", joined_disp)
 	cv2.waitKey(0)
 	cv2.destroyAllWindows()
 	
-	save_figure_path = params.save_to + "/figures/"
-	
-	if not os.path.exists(save_figure_path):
-		os.makedirs(save_figure_path)
-	
-	save_img_name = save_figure_path + "ref_" + ref_img.sliceName + "_test_" + test_img.sliceName + ".tiff"
-	cv2.imwrite(save_img_name, joined_disp)
+	cv2.imwrite(save_img_name+".tiff", joined_disp)
 	
 	roi_x = [int(x/scale_display) for x in roi_x]
 	roi_y = [int(y/scale_display) for y in roi_y]
@@ -288,65 +316,66 @@ for n in range(n_slice):
 		x0 = roi_x[idx]
 		y0 = roi_y[idx]
 		
+		data_to_write = [ref_img.sliceName, test_img.sliceName, idx, (roi_x[idx], roi_y[idx])]
+		
 		if roi == "circle":
 			ref_values = []
-			test_values = []
-			
 			radius_roi = params.roi_halfwidth
-		
+			
 			for i, j in product(range(y0 - radius_roi, y0 + radius_roi), range(x0 - radius_roi, x0 + radius_roi)): 
 				if np.sqrt((j - x0)**2 + (i - y0)**2) <= radius_roi:
 					ref_values.append(ref_img.data[i, j])
-					test_values.append(test_img.data[i, j])
-		elif roi == "square":
-			ref_values = ref_img.data[y0-params.roi_halfwidth:y0+params.roi_halfwidth, x0-params.roi_halfwidth:x0+params.roi_halfwidth]
-			test_values = test_img.data[y0-params.roi_halfwidth:y0+params.roi_halfwidth, x0-params.roi_halfwidth:x0+params.roi_halfwidth]
 			
-					
+		elif roi == "square":
+			ref_values = ref_img.data[y0-params.roi_halfwidth:y0+params.roi_halfwidth, x0-params.roi_halfwidth:x0+params.roi_halfwidth]	
+			
 		ref_mean = np.mean(ref_values)
 		ref_sd = np.std(ref_values)
-		test_mean = np.mean(test_values)
-		test_sd = np.std(test_values)
+		
+		data_to_write += [ref_values.flatten().tolist(), ref_mean, ref_sd]
 		
 		if not params.no_nps:
 			if idx==0:
 				print("Calculating NPS.")
-				fig=plt.figure()
-				ref_plt = fig.gca()
-				test_plt = fig.gca()
-				
-				if n==0:
+			
+				if n == 0:
 					sp_freq = np.fft.fftfreq(np.fft.fft2(ref_values).shape[0], params.px_size)
 					nyquist_freq = 0.5 / params.px_size
-					
 					sp_freq = sp_freq / nyquist_freq
-	
 					r = np.zeros(np.fft.fft2(ref_values).shape)
 	
 					for i, j in product(range(len(sp_freq)), range(len(sp_freq))):
 						yy = sp_freq[i]
 						xx = sp_freq[j]
 						r[i, j] = np.sqrt(xx**2 + yy**2)
-		
-			sp_freq, ref_noise_power, ref_tot_noise = nps_calc(ref_values, ref_mean, r)
-			sp_freq, test_noise_power, test_tot_noise = nps_calc(test_values, test_mean, r)
-			
-			c = (idx)  - (int(idx/10) * 10)
-			roi_colour = list_of_colours[c]
-			
-			ref_plt.plot(sp_freq, ref_noise_power, color=roi_colour, linestyle='--', label="Ref ROI "+str(idx))
-			test_plt.plot(sp_freq, test_noise_power, color=roi_colour, linestyle='-', label="Test ROI "+str(idx))
-			
-			if idx==params.n_roi-1:
-				plt.xlabel(r"Spatial frequency / Nyquist frequency")
-				plt.ylabel(r"Noise power (nm$^{2}$)")
-				plt.xlim((0,1))
-				plt.savefig(params.save_to + "/figures/nps_" + "ref_" + ref_img.sliceName + "_test_" + test_img.sliceName + ".png")
 				
-			data_to_write = [ref_img.sliceName, test_img.sliceName, idx, (roi_x[idx], roi_y[idx]), ref_values.flatten().tolist(), ref_mean, ref_sd, test_values.flatten().tolist(), test_mean, test_sd, sp_freq, list(ref_noise_power), list(test_noise_power), ref_tot_noise, test_tot_noise]
+			sp_freq, ref_noise_power, ref_tot_noise = nps_calc(ref_values, ref_mean, r)
+			
+			data_to_write += [sp_freq, list(ref_noise_power), ref_tot_noise]
+				
+		if params.test != None:
+			for t in range(len(test_images)):
+				if roi == "circle":
+					test_values = []
+			
+					for i, j in product(range(y0 - radius_roi, y0 + radius_roi), range(x0 - radius_roi, x0 + radius_roi)): 
+						if np.sqrt((j - x0)**2 + (i - y0)**2) <= radius_roi:
+							test_values.append(test_img_array[t, i, j])
+				
+				elif roi == "square":
+					test_values = test_img_array[t, y0-params.roi_halfwidth:y0+params.roi_halfwidth, x0-params.roi_halfwidth:x0+params.roi_halfwidth]
+			
+				test_mean = np.mean(test_values)
+				test_sd = np.std(test_values)
+				
+				data_to_write += [test_values.flatten().tolist(), test_mean, test_sd]
 		
-		else:
-			data_to_write = [ref_img.sliceName, test_img.sliceName, idx, (roi_x[idx], roi_y[idx]), ref_values.flatten().tolist(), ref_mean, ref_sd, test_values.flatten().tolist(), test_mean, test_sd]
+				if not params.no_nps:
+					if idx==0:
+						print("Calculating NPS.")				
+					
+					sp_freq, test_noise_power, test_tot_noise = nps_calc(test_values, test_mean, r)
+					data_to_write += [sp_freq, list(test_noise_power), test_tot_noise]
 		
 		results.idx = (n * params.n_roi) + idx
 		results.write_line(data_to_write)
