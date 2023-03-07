@@ -13,9 +13,9 @@ from skimage.metrics import structural_similarity
 from itertools import product
 
 parser = argparse.ArgumentParser(description="Quantitative ROI-based comparison of two similar images")
-parser.add_argument('ref_filepath', help="Required: Path to the reference image.")
-parser.add_argument('test_filepath', help="Required: Path to the test image.")
-parser.add_argument('save_filepath', help="Required: Path where data is to be saved.")
+parser.add_argument('--ref', help="Required: Path to the reference image.")
+parser.add_argument('--test', nargs='*', action='store', type=str, help="Optional: Paths to test images.")
+parser.add_argument('--save_to', default='.', help="Path where data is to be saved.")
 parser.add_argument('--no_alignZ', action='store_true', default=False, help="Skip z-alignment (orthogonal to slice plane) of test dataset to reference dataset.")
 parser.add_argument('--no_alignXY', action='store_true', default=False, help="Skip xy-alignment (in slice place) of test dataset to reference dataset.")
 parser.add_argument('--max_shift', default=[30, 5], nargs=2, type=int, help="Maximum shift allowed in (slice, xy plane) for image alignment. Default value is (30, 10).")
@@ -25,7 +25,7 @@ parser.add_argument('--n_roi', default=5, type=int, help="Number of regions of i
 parser.add_argument('--roi_shape', choices=['square', 'circle'], default='square', help="The shape of the region of interest to be selected. Available options: square or circle.")
 parser.add_argument('--roi_halfwidth', default=10, type=int, help="The half-width or radius of the region of interest in pixels. Default value is 10.")
 parser.add_argument('--no_nps', action='store_true', default=False, help="Skip calculation of noise power spectrum.")
-parser.add_argument('--px_size', default=90, type=float, help="The size, in nm, of the image pixels. Default value is 90 nm. Value is the same for both images.")
+parser.add_argument('--px_size', default=90, type=float, help="The size, in nm, of the image pixels. Default value is 90 nm. Value must be the same for all images.")
 params = parser.parse_args()
 
 if params.roi_shape == "circle" or params.roi_shape == "Circle" or params.roi_shape == "c" or params.roi_shape=="C":
@@ -84,19 +84,26 @@ class projection:
 	def display(self):
 		cv2.imshow(self.displayText, self.disp_img)
 		
-def z_shift(fixed, moving):
+def z_shift(fixed, moving, w):
 	print("Calculating shift between the slices in reference and test images.")
 	max_score = 0
 	shift = 0
-	ref = projection(fixed, 0)
-	ref.read()
-	for i in range(params.max_shift[0]):
-		test = projection(moving, i)
-		test.read()
-		score, diff = structural_similarity(ref.data, test.data, full=True)
-		if score > max_score:
-			max_score = score
-			shift = i
+	max_shift = params.max_shift[0]
+	fixed = fixed[max_shift:max_shift+w-1]
+	for i in range(2*max_shift+1):
+		moving = moving[i:i+w-1]
+		total_score = 0
+		for j in range(w):
+			ref = projection(fixed, j)
+			ref.read()
+			test = projection(moving, j)
+			test.read()
+			score, diff = structural_similarity(ref.data, test.data, full=True)
+			total_score += score
+			
+		if total_score > max_score:
+			max_score = total_score
+			shift = i - max_shift
 	
 	print("A shift of " + str(shift) + " slices was found." )
 	return shift
@@ -122,9 +129,9 @@ def xy_shift(fixed, moving):
 class dataFrame:
 	def __init__(self):
 		if not params.no_nps:
-			self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refMean", "refSD", "testMean", "testSD", "radialSpFreq", "refNPS", "testNPS", "refTotNoise", "testTotNoise"]
+			self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refRaw", "refMean", "refSD", "testRaw", "testMean", "testSD", "radialSpFreq", "refNPS", "testNPS", "refTotNoise", "testTotNoise"]
 		else:
-			self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refMean", "refSD", "testMean", "testSD"]
+			self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refRaw", "refMean", "refSD", "testRaw", "testMean", "testSD"]
 		self.table = pd.DataFrame(columns=self.columnNames)
 		self.idx = 0
 		
@@ -180,31 +187,32 @@ def nps_calc(roi_raw, roi_mean, r_sp_freq):
 ======================== MAIN PROGRAM ==================================
 """		
 
-if not os.path.exists(params.save_filepath):
-	os.makedirs(params.save_filepath)
-		
-ref_shift = sorted(glob.glob(params.ref_filepath + "*"))
-test_shift = sorted(glob.glob(params.test_filepath + "*"))
+if not os.path.exists(params.save_to):
+	os.makedirs(params.save_to)
+	
+ref_dataset = params.ref		
+ref_shift = sorted(glob.glob(ref_dataset + "*"))
+test_shift = sorted(glob.glob(test_dataset + "*"))
 
-print(params.ref_filepath, params.test_filepath)
+print(ref_dataset, test_dataset)
 
 if not params.no_alignZ:
-	slice_shift = z_shift(ref_shift, test_shift)
+	slice_shift = z_shift(ref_shift, test_shift, 5)
 	if params.slices == None:
-		ref_images = sorted(glob.glob(params.ref_filepath + "*"))[0:-slice_shift:params.interval]
-		test_images = sorted(glob.glob(params.test_filepath + "*"))[0+slice_shift::params.interval]
+		ref_images = sorted(glob.glob(params.ref + "*"))[0:-slice_shift:params.interval]
+		test_images = sorted(glob.glob(params.test + "*"))[0+slice_shift::params.interval]
 	else:
 		shifted_idx = [x + slice_shift for x in slice_idx]
-		ref_images = [sorted(glob.glob(params.ref_filepath + "*"))[s] for s in slice_idx]
-		test_images = [sorted(glob.glob(params.test_filepath + "*"))[s] for s in shifted_idx]
+		ref_images = [sorted(glob.glob(params.ref + "*"))[s] for s in slice_idx]
+		test_images = [sorted(glob.glob(params.test + "*"))[s] for s in shifted_idx]
 	
 else:
 	if params.slices == None:
-		ref_images = sorted(glob.glob(params.ref_filepath + "*"))[0::params.interval]
-		test_images = sorted(glob.glob(params.test_filepath + "*"))[0::params.interval]
+		ref_images = sorted(glob.glob(params.ref + "*"))[0::params.interval]
+		test_images = sorted(glob.glob(params.test + "*"))[0::params.interval]
 	else:
-		ref_images = [sorted(glob.glob(params.ref_filepath + "*"))[s] for s in slice_idx]
-		test_images = [sorted(glob.glob(params.test_filepath + "*"))[s] for s in slice_idx]
+		ref_images = [sorted(glob.glob(params.ref + "*"))[s] for s in slice_idx]
+		test_images = [sorted(glob.glob(params.test + "*"))[s] for s in slice_idx]
 
 scale_display = 0.75
 
@@ -265,7 +273,7 @@ for n in range(n_slice):
 	cv2.waitKey(0)
 	cv2.destroyAllWindows()
 	
-	save_figure_path = params.save_filepath + "/figures/"
+	save_figure_path = params.save_to + "/figures/"
 	
 	if not os.path.exists(save_figure_path):
 		os.makedirs(save_figure_path)
@@ -333,16 +341,16 @@ for n in range(n_slice):
 				plt.xlabel(r"Spatial frequency / Nyquist frequency")
 				plt.ylabel(r"Noise power (nm$^{2}$)")
 				plt.xlim((0,1))
-				plt.savefig(params.save_filepath + "/figures/nps_" + "ref_" + ref_img.sliceName + "_test_" + test_img.sliceName + ".png")
+				plt.savefig(params.save_to + "/figures/nps_" + "ref_" + ref_img.sliceName + "_test_" + test_img.sliceName + ".png")
 				
-			data_to_write = [ref_img.sliceName, test_img.sliceName, idx, (roi_x[idx], roi_y[idx]), ref_mean, ref_sd, test_mean, test_sd, sp_freq, list(ref_noise_power), list(test_noise_power), ref_tot_noise, test_tot_noise]
+			data_to_write = [ref_img.sliceName, test_img.sliceName, idx, (roi_x[idx], roi_y[idx]), ref_values.flatten().tolist(), ref_mean, ref_sd, test_values.flatten().tolist(), test_mean, test_sd, sp_freq, list(ref_noise_power), list(test_noise_power), ref_tot_noise, test_tot_noise]
 		
 		else:
-			data_to_write = [ref_img.sliceName, test_img.sliceName, idx, (roi_x[idx], roi_y[idx]), ref_mean, ref_sd, test_mean, test_sd]
+			data_to_write = [ref_img.sliceName, test_img.sliceName, idx, (roi_x[idx], roi_y[idx]), ref_values.flatten().tolist(), ref_mean, ref_sd, test_values.flatten().tolist(), test_mean, test_sd]
 		
 		results.idx = (n * params.n_roi) + idx
 		results.write_line(data_to_write)
 		
-results.save_as_excel(params.save_filepath+"/results")
+results.save_as_excel(params.save_to+"/results")
 
 
