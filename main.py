@@ -178,8 +178,6 @@ def nps_calc(roi_raw, roi_mean, r_sp_freq):
 	fft_g = np.fft.fft2(g)
 	fft_g_sq = np.power(np.absolute(fft_g), 2)
 	
-	print(fft_g_sq)
-	
 	dim = roi_raw.shape[0]
 	nbins = dim #int(dim/2)
 	
@@ -204,10 +202,10 @@ if not os.path.exists(params.save_to):
 	os.makedirs(params.save_to)
 	
 ref_dataset = params.ref
-scale_display = 0.75
+scale_display = 0.5
 
 if params.slices == None:
-	slice_idx = np.arange(max_slice_shift, len(params.ref), params.interval)
+	slice_idx = np.arange(params.max_shift[0], len(sorted(glob.glob(ref_dataset + "*"))) - params.max_shift[0], params.interval)
 else:
 	slice_idx = [x-1 for x in params.slices]
 	
@@ -299,7 +297,7 @@ for n in range(n_slice):
 			test_img.convertDisplay()
 			
 			for r in range(params.n_roi):
-				c = r - (int(n/10) * 10)
+				c = r - (int(r/10) * 10)
 				rgb = (np.asarray(mcolors.to_rgb(mcolors.TABLEAU_COLORS[list_of_colours[c]]))*255).astype(int)
 				test_img.draw_roi(str(r), (roi_x[r],roi_y[r]), int(params.roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
 			joined_disp = np.concatenate((joined_disp, test_img.mkup_img), axis=1)
@@ -351,8 +349,7 @@ for n in range(n_slice):
 						yy = sp_freq[i]
 						xx = sp_freq[j]
 						radial_freq[i, j] = np.sqrt(xx**2 + yy**2)
-			
-			print(radial_freq)
+
 			freq, ref_noise_power, ref_tot_noise = nps_calc(ref_values, ref_mean, radial_freq)
 			
 			data_to_write += [','.join(list(map(str, freq))), ','.join(list(map(str, ref_noise_power))), ref_tot_noise]
