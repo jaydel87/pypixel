@@ -130,7 +130,7 @@ class dataFrame:
 		base_cols = ["slice", "roiID", "roiCentre"]
 		if not params.no_nps:
 			#self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refRaw", "refMean", "refSD", "testRaw", "testMean", "testSD", "radialSpFreq", "refNPS", "testNPS", "refTotNoise", "testTotNoise"]
-			data_cols = ["Raw", "Mean", "SD", "radialSpFreq", "NPS", "TotNoise"]
+			data_cols = ["SliceName", "Raw", "Mean", "SD", "radialSpFreq", "NPS", "TotNoise"]
 			self.columnNames = base_cols + data_cols
 			for i in range(add_columns):
 				test_data_cols = ["test" + str(i) + x for x in data_cols]
@@ -177,6 +177,8 @@ def nps_calc(roi_raw, roi_mean, r_sp_freq):
 	g = roi_raw - roi_mean
 	fft_g = np.fft.fft2(g)
 	fft_g_sq = np.power(np.absolute(fft_g), 2)
+	
+	print(fft_g_sq)
 	
 	dim = roi_raw.shape[0]
 	nbins = dim #int(dim/2)
@@ -285,13 +287,12 @@ for n in range(n_slice):
 	if params.test != None:
 		test_img_array = np.zeros((len(test_images), ref_img.n_rows, ref_img.n_cols))
 		for i, img in enumerate(test_images):
-			print(img, n)
 			test_img = projection(img, n)
 			test_img.scaleDisp = scale_display
 			test_img.read()
 			test_img_array[i,:,:] = test_img.data
 
-			save_img_name += "_test_" + str(i) + test_img.sliceName
+			save_img_name += "_test" + str(i) + "_" + test_img.sliceName
 
 			if not params.no_alignXY:
 				test_img.data = xy_shift(ref_img, test_img)
@@ -318,7 +319,7 @@ for n in range(n_slice):
 		x0 = roi_x[idx]
 		y0 = roi_y[idx]
 		
-		data_to_write = [n, idx, (roi_x[idx], roi_y[idx])]
+		data_to_write = [n, idx, ','.join(list(map(str, [roi_x[idx], roi_y[idx]])))]
 		
 		if roi == "circle":
 			ref_values = []
@@ -334,7 +335,7 @@ for n in range(n_slice):
 		ref_mean = np.mean(ref_values)
 		ref_sd = np.std(ref_values)
 		
-		data_to_write += [ref_img.sliceName, ref_values.flatten().tolist(), ref_mean, ref_sd]
+		data_to_write += [ref_img.sliceName, ','.join(list(map(str, ref_values.flatten().tolist()))), ref_mean, ref_sd]
 		
 		if not params.no_nps:
 			if idx==0:
@@ -344,16 +345,17 @@ for n in range(n_slice):
 					sp_freq = np.fft.fftfreq(np.fft.fft2(ref_values).shape[0], params.px_size)
 					nyquist_freq = 0.5 / params.px_size
 					sp_freq = sp_freq / nyquist_freq
-					r = np.zeros(np.fft.fft2(ref_values).shape)
+					radial_freq = np.zeros(np.fft.fft2(ref_values).shape)
 	
 					for i, j in product(range(len(sp_freq)), range(len(sp_freq))):
 						yy = sp_freq[i]
 						xx = sp_freq[j]
-						r[i, j] = np.sqrt(xx**2 + yy**2)
-				
-			sp_freq, ref_noise_power, ref_tot_noise = nps_calc(ref_values, ref_mean, r)
+						radial_freq[i, j] = np.sqrt(xx**2 + yy**2)
 			
-			data_to_write += [sp_freq, list(ref_noise_power), ref_tot_noise]
+			print(radial_freq)
+			freq, ref_noise_power, ref_tot_noise = nps_calc(ref_values, ref_mean, radial_freq)
+			
+			data_to_write += [','.join(list(map(str, freq))), ','.join(list(map(str, ref_noise_power))), ref_tot_noise]
 				
 		if params.test != None:
 			for t in range(len(test_images)):
@@ -370,14 +372,14 @@ for n in range(n_slice):
 				test_mean = np.mean(test_values)
 				test_sd = np.std(test_values)
 				
-				data_to_write += [test_img.sliceName, test_values.flatten().tolist(), test_mean, test_sd]
+				data_to_write += [test_img.sliceName, ','.join(list(map(str, test_values.flatten().tolist()))), test_mean, test_sd]
 		
 				if not params.no_nps:
 					if idx==0:
-						print("Calculating NPS.")				
+						print("Calculating NPS.")
 					
-					sp_freq, test_noise_power, test_tot_noise = nps_calc(test_values, test_mean, r)
-					data_to_write += [sp_freq, list(test_noise_power), test_tot_noise]
+					freq, test_noise_power, test_tot_noise = nps_calc(test_values, test_mean, radial_freq)
+					data_to_write += [','.join(list(map(str, freq))), ','.join(list(map(str, test_noise_power))), test_tot_noise]
 		
 		results.idx = (n * params.n_roi) + idx
 		results.write_line(data_to_write)
