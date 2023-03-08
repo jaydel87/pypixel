@@ -14,7 +14,7 @@ from itertools import product
 
 parser = argparse.ArgumentParser(description="Quantitative ROI-based comparison of two similar images")
 parser.add_argument('--ref', help="Required: Path to the reference image.")
-parser.add_argument('--test', nargs='*', action='store', type=str, help="Optional: Paths to test images.")
+parser.add_argument('--test', nargs='*', action='store', help="Optional: Paths to test images.")
 parser.add_argument('--save_to', default='.', help="Path where data is to be saved.")
 parser.add_argument('--no_alignZ', action='store_true', default=False, help="Skip z-alignment (orthogonal to slice plane) of test dataset to reference dataset.")
 parser.add_argument('--no_alignXY', action='store_true', default=False, help="Skip xy-alignment (in slice place) of test dataset to reference dataset.")
@@ -85,18 +85,17 @@ class projection:
 		cv2.imshow(self.displayText, self.disp_img)
 		
 def z_shift(fixed, moving, w):
-	print("Calculating shift between the slices in reference and test images.")
 	max_score = 0
 	shift = 0
 	max_shift = params.max_shift[0]
-	fixed = fixed[max_shift:max_shift+w-1]
+	fixed_window = fixed[max_shift:max_shift+w]
 	for i in range(2*max_shift+1):
-		moving = moving[i:i+w-1]
+		moving_window = moving[i:i+w]
 		total_score = 0
 		for j in range(w):
-			ref = projection(fixed, j)
+			ref = projection(fixed_window, j)
 			ref.read()
-			test = projection(moving, j)
+			test = projection(moving_window, j)
 			test.read()
 			score, diff = structural_similarity(ref.data, test.data, full=True)
 			total_score += score
@@ -138,7 +137,7 @@ class dataFrame:
 				self.columnNames.extend(test_data_cols)
 		else:
 			#self.columnNames = ["refSlice", "testSlice", "roiID", "roiCentre", "refRaw", "refMean", "refSD", "testRaw", "testMean", "testSD"]
-			data_cols = ["Raw", "Mean", "SD"]
+			data_cols = ["SliceName", "Raw", "Mean", "SD"]
 			self.columnNames = base_cols + data_cols
 			for i in range(add_columns):
 				test_data_cols = ["test" + str(i) + x for x in data_cols]
@@ -263,6 +262,8 @@ for n in range(n_slice):
 	
 	save_img_name = save_figure_path + "ref_" + ref_img.sliceName
 	
+	displayFlag = True
+	
 	while displayFlag == True:
 		if len(roi_x) > 0:
 			c = (len(roi_x) - 1)  - (int(len(roi_x)/10) * 10) # Go back to zero when number of ROIs exceeds number of colours in palette
@@ -282,8 +283,9 @@ for n in range(n_slice):
 	joined_disp = ref_img.mkup_img
 
 	if params.test != None:
-		test_img_array = np.zeros((len(test_images), ref_img.nrows, ref_img.ncols))
+		test_img_array = np.zeros((len(test_images), ref_img.n_rows, ref_img.n_cols))
 		for i, img in enumerate(test_images):
+			print(img, n)
 			test_img = projection(img, n)
 			test_img.scaleDisp = scale_display
 			test_img.read()
@@ -295,13 +297,13 @@ for n in range(n_slice):
 				test_img.data = xy_shift(ref_img, test_img)
 			test_img.convertDisplay()
 			
-			for n in range(params.n_roi):
-				c = n - (int(n/10) * 10)
+			for r in range(params.n_roi):
+				c = r - (int(n/10) * 10)
 				rgb = (np.asarray(mcolors.to_rgb(mcolors.TABLEAU_COLORS[list_of_colours[c]]))*255).astype(int)
-				test_img.draw_roi(str(n), (roi_x[n],roi_y[n]), int(params.roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
-				joined_disp = np.concatenate((joined_disp, test_img.mkup_img), axis=1)
+				test_img.draw_roi(str(r), (roi_x[r],roi_y[r]), int(params.roi_halfwidth*scale_display), (int(rgb[2]), int(rgb[1]), int(rgb[0])), 2)
+			joined_disp = np.concatenate((joined_disp, test_img.mkup_img), axis=1)
 	
-		joined_disp = cv2.resize(joined_disp, (ref_img.disp_cols, (1/(len(test_images)+1))*ref_img.disp_rows))
+		joined_disp = cv2.resize(joined_disp, (int(2*ref_img.disp_cols), int((2/(len(test_images)+1))*ref_img.disp_rows)))
 		
 	cv2.imshow("Displaying ROIs on reference image (left) and test images (right). Press <<ENTER>> to confirm.", joined_disp)
 	cv2.waitKey(0)
@@ -316,7 +318,7 @@ for n in range(n_slice):
 		x0 = roi_x[idx]
 		y0 = roi_y[idx]
 		
-		data_to_write = [ref_img.sliceName, test_img.sliceName, idx, (roi_x[idx], roi_y[idx])]
+		data_to_write = [n, idx, (roi_x[idx], roi_y[idx])]
 		
 		if roi == "circle":
 			ref_values = []
@@ -332,7 +334,7 @@ for n in range(n_slice):
 		ref_mean = np.mean(ref_values)
 		ref_sd = np.std(ref_values)
 		
-		data_to_write += [ref_values.flatten().tolist(), ref_mean, ref_sd]
+		data_to_write += [ref_img.sliceName, ref_values.flatten().tolist(), ref_mean, ref_sd]
 		
 		if not params.no_nps:
 			if idx==0:
@@ -368,7 +370,7 @@ for n in range(n_slice):
 				test_mean = np.mean(test_values)
 				test_sd = np.std(test_values)
 				
-				data_to_write += [test_values.flatten().tolist(), test_mean, test_sd]
+				data_to_write += [test_img.sliceName, test_values.flatten().tolist(), test_mean, test_sd]
 		
 				if not params.no_nps:
 					if idx==0:
